@@ -14,4 +14,5 @@
   <Project Path="Practice3_Breakout/Practice3_Breakout.vcxproj" Id="11c735be-1176-4cdd-90e2-38716c376f35" />
   <Project Path="Practice3_Bricks/Practice3_Bricks.vcxproj" Id="c2c967b3-fa2f-4dd1-963d-05829854ce8e" />
   <Project Path="practice4_hundred_levels/practice4_hundred_levels.vcxproj" Id="3c324562-4ab9-4308-b3e3-ce085e6ef296" />
+  <Project Path="Practice5_Bomberman.cpp/Practice5_Bomberman.cpp.vcxproj" Id="163a07ad-e3c5-4623-8d3f-8f640d9ab938" />
 </Solution>

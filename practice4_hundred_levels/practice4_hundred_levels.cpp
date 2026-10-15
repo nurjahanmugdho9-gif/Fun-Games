@@ -7,385 +7,656 @@
 #include <stdio.h>
 
 // =====================================================================
-// Practice-2 : Going Down 100 Levels  (safe-board rhythm + gift bags)
+// Practice-1 : Bomberman  (fixed map + upgraded visuals)
+// Controls:
+//   ARROW KEYS -> move player
+//   B          -> place bomb
+//   SPACE      -> start the game
+//   R          -> restart
+//   ESC        -> quit
 // =====================================================================
 
-struct Board
-{
-    float x, y;
-    float w;
-    bool  thorny;
-    bool  hasGift;
-};
+constexpr int TILE = 50;
+constexpr int COLS = 9;
+constexpr int ROWS = 9;
+constexpr int HUD_H = 60;
+constexpr int W = COLS * TILE;
+constexpr int H = ROWS * TILE + HUD_H;
 
-void drawPerson(float x, float y)
+enum Tile { EMPTY = 0, CONCRETE = 1, BRICK = 2 };
+
+constexpr int DX[4] = { 0, 0, -1, 1 };
+constexpr int DY[4] = { -1, 1, 0, 0 };
+
+struct Bomb { bool active; int cx, cy; int timer; };
+struct Enemy { bool alive; int cx, cy; int dir; int moveTimer; };
+struct Flame { bool active; int cx, cy; int timer; };
+
+// =====================================================================
+// Draw a person sprite (bomber) — better quality
+// =====================================================================
+void drawPlayer(int px, int py)
 {
+    int cx = px + TILE / 2;
+    int cy = py + TILE / 2;
+
+    // Shadow
+    setfillcolor(RGB(0, 0, 0, 40));
+    setlinecolor(RGB(0, 0, 0, 40));
+    solidellipse(cx - 14, cy + 14, cx + 14, cy + 20);
+
+    // Body (blue overalls)
+    setfillcolor(RGB(60, 110, 220));
+    setlinecolor(RGB(20, 40, 100));
+    setlinestyle(PS_SOLID, 2);
+    solidrectangle(cx - 10, cy + 2, cx + 10, cy + 16);
+
+    // Legs
+    setfillcolor(RGB(40, 40, 60));
+    solidrectangle(cx - 8, cy + 16, cx - 3, cy + 20);
+    solidrectangle(cx + 3, cy + 16, cx + 8, cy + 20);
+
+    // Head
     setfillcolor(RGB(255, 220, 180));
-    setlinecolor(RGB(80, 50, 30));
-    setlinestyle(PS_SOLID, 2);
-    fillcircle((int)x, (int)(y - 40), 10);
+    setlinecolor(RGB(120, 80, 40));
+    fillcircle(cx, cy - 8, 10);
 
-    setfillcolor(RGB(50, 100, 200));
-    setlinecolor(RGB(20, 40, 100));
-    solidrectangle((int)(x - 8), (int)(y - 30), (int)(x + 8), (int)(y - 10));
+    // Helmet
+    setfillcolor(RGB(240, 60, 60));
+    setlinecolor(RGB(140, 20, 20));
+    solidellipse(cx - 12, cy - 20, cx + 12, cy - 8);
 
-    setlinecolor(RGB(20, 40, 100));
-    setlinestyle(PS_SOLID, 4);
-    line((int)(x - 8), (int)(y - 25), (int)(x - 18), (int)(y - 15));
-    line((int)(x + 8), (int)(y - 25), (int)(x + 18), (int)(y - 15));
-
-    line((int)(x - 5), (int)(y - 10), (int)(x - 8), (int)(y));
-    line((int)(x + 5), (int)(y - 10), (int)(x + 8), (int)(y));
+    // Eyes
+    setfillcolor(RGB(0, 0, 0));
+    solidcircle(cx - 3, cy - 6, 2);
+    solidcircle(cx + 3, cy - 6, 2);
 }
 
-void drawThornRow(int x1, int x2, int y, int toothW, int toothH)
+// =====================================================================
+// Draw an enemy sprite
+// =====================================================================
+void drawEnemy(int px, int py)
 {
-    setlinecolor(RGB(230, 40, 40));
+    int cx = px + TILE / 2;
+    int cy = py + TILE / 2;
+
+    // Shadow
+    setfillcolor(RGB(0, 0, 0, 40));
+    setlinecolor(RGB(0, 0, 0, 40));
+    solidellipse(cx - 14, cy + 12, cx + 14, cy + 18);
+
+    // Body (red ghost-like)
+    setfillcolor(RGB(230, 70, 70));
+    setlinecolor(RGB(120, 0, 0));
     setlinestyle(PS_SOLID, 2);
-    for (int i = x1; i + toothW <= x2; i += toothW)
-    {
-        line(i, y, i + toothW / 2, y + toothH);
-        line(i + toothW / 2, y + toothH, i + toothW, y);
-    }
+    fillcircle(cx, cy - 2, 16);
+
+    // Bottom skirt (semi-circle flaps)
+    setfillcolor(RGB(200, 50, 50));
+    solidrectangle(cx - 16, cy - 2, cx + 16, cy + 8);
+
+    // Eyes
+    setfillcolor(RGB(255, 255, 255));
+    setlinecolor(RGB(0, 0, 0));
+    fillcircle(cx - 6, cy - 6, 5);
+    fillcircle(cx + 6, cy - 6, 5);
+
+    setfillcolor(RGB(0, 0, 0));
+    setlinecolor(RGB(0, 0, 0));
+    solidcircle(cx - 6, cy - 6, 2);
+    solidcircle(cx + 6, cy - 6, 2);
+
+    // Angry eyebrows
+    setlinecolor(RGB(0, 0, 0));
+    setlinestyle(PS_SOLID, 2);
+    line(cx - 10, cy - 12, cx - 3, cy - 10);
+    line(cx + 10, cy - 12, cx + 3, cy - 10);
+
+    // Mouth
+    setlinestyle(PS_SOLID, 2);
+    arc(cx - 5, cy + 2, cx + 5, cy + 8, 0, 3.14f);
 }
 
+// =====================================================================
+// Draw a bomb
+// =====================================================================
+void drawBomb(int px, int py, int timer)
+{
+    int cx = px + TILE / 2;
+    int cy = py + TILE / 2;
+    int pulse = (timer % 6 < 3) ? 0 : 2;
+
+    // Shadow
+    setfillcolor(RGB(0, 0, 0, 60));
+    setlinecolor(RGB(0, 0, 0, 60));
+    solidellipse(cx - 12, cy + 12, cx + 12, cy + 18);
+
+    // Bomb body
+    setfillcolor(RGB(30, 30, 30));
+    setlinecolor(RGB(0, 0, 0));
+    setlinestyle(PS_SOLID, 2);
+    fillcircle(cx, cy, 15 + pulse);
+
+    // Shine highlight
+    setfillcolor(RGB(120, 120, 120));
+    setlinecolor(RGB(120, 120, 120));
+    solidcircle(cx - 5, cy - 6, 4);
+
+    // Fuse
+    setlinecolor(RGB(200, 150, 60));
+    setlinestyle(PS_SOLID, 3);
+    line(cx + 8, cy - 14, cx + 14, cy - 22);
+    line(cx + 14, cy - 22, cx + 16, cy - 26);
+
+    // Spark
+    setfillcolor(RGB(255, 220, 60));
+    setlinecolor(RGB(255, 120, 0));
+    solidcircle(cx + 16, cy - 26, 3);
+}
+
+// =====================================================================
+// Draw a flame
+// =====================================================================
+void drawFlame(int px, int py, int timer)
+{
+    int cx = px + TILE / 2;
+    int cy = py + TILE / 2;
+    int r = TILE / 2;
+
+    // Outer glow
+    setfillcolor(RGB(255, 100, 0));
+    setlinecolor(RGB(255, 100, 0));
+    fillcircle(cx, cy, r);
+
+    // Middle
+    setfillcolor(RGB(255, 180, 0));
+    setlinecolor(RGB(255, 180, 0));
+    fillcircle(cx, cy, r - 6);
+
+    // Inner core
+    setfillcolor(RGB(255, 240, 120));
+    setlinecolor(RGB(255, 240, 120));
+    fillcircle(cx, cy, r - 14);
+}
+
+// =====================================================================
+// Draw a concrete block
+// =====================================================================
+void drawConcrete(int x, int y)
+{
+    // Base
+    setfillcolor(RGB(180, 180, 190));
+    setlinecolor(RGB(90, 90, 100));
+    setlinestyle(PS_SOLID, 2);
+    fillrectangle(x + 1, y + 1, x + TILE - 1, y + TILE - 1);
+
+    // Top highlight
+    setfillcolor(RGB(220, 220, 230));
+    setlinecolor(RGB(220, 220, 230));
+    solidrectangle(x + 3, y + 3, x + TILE - 3, y + 8);
+
+    // Bottom shadow
+    setfillcolor(RGB(120, 120, 130));
+    solidrectangle(x + 3, y + TILE - 8, x + TILE - 3, y + TILE - 3);
+
+    // Inner border
+    setlinecolor(RGB(140, 140, 150));
+    rectangle(x + 6, y + 6, x + TILE - 6, y + TILE - 6);
+}
+
+// =====================================================================
+// Draw a breakable brick
+// =====================================================================
+void drawBrick(int x, int y)
+{
+    // Base
+    setfillcolor(RGB(180, 90, 50));
+    setlinecolor(RGB(100, 40, 20));
+    setlinestyle(PS_SOLID, 2);
+    fillrectangle(x + 1, y + 1, x + TILE - 1, y + TILE - 1);
+
+    // Brick lines (2 rows)
+    setlinecolor(RGB(80, 30, 10));
+    setlinestyle(PS_SOLID, 2);
+
+    // Horizontal split
+    line(x + 1, y + TILE / 2, x + TILE - 1, y + TILE / 2);
+
+    // Vertical splits (offset between rows)
+    line(x + TILE / 3, y + 1, x + TILE / 3, y + TILE / 2);
+    line(x + 2 * TILE / 3, y + 1, x + 2 * TILE / 3, y + TILE / 2);
+
+    line(x + TILE / 2, y + TILE / 2, x + TILE / 2, y + TILE - 1);
+
+    // Highlight
+    setlinecolor(RGB(220, 140, 90));
+    line(x + 3, y + 3, x + TILE - 3, y + 3);
+}
+
+// =====================================================================
+// Draw the grass floor with a subtle pattern
+// =====================================================================
+void drawGround(int x, int y, int r, int c)
+{
+    // Two-tone grass for checker feel
+    if ((r + c) % 2 == 0)
+        setfillcolor(RGB(80, 180, 80));
+    else
+        setfillcolor(RGB(70, 165, 70));
+
+    setlinecolor(RGB(60, 140, 60));
+    setlinestyle(PS_SOLID, 1);
+    fillrectangle(x, y, x + TILE, y + TILE);
+
+    // Small grass blade highlights
+    setlinecolor(RGB(110, 210, 110));
+    line(x + 10, y + TILE - 12, x + 12, y + TILE - 6);
+    line(x + 20, y + TILE - 15, x + 22, y + TILE - 8);
+    line(x + 32, y + TILE - 10, x + 34, y + TILE - 5);
+}
+
+// =====================================================================
+// Main
+// =====================================================================
 int main()
 {
-    constexpr int W = 600;
-    constexpr int H = 800;
     initgraph(W, H);
     srand((unsigned)time(0));
 
-    float playerX = W / 2.0f;
-    float playerY = 0.0f;
-    float playerVY = 0.0f;
-    constexpr float gravity = 0.6f;
-    constexpr float moveSpeed = 6.0f;
-    constexpr float playerW = 20.0f;
-    constexpr float playerH = 45.0f;
-
-    constexpr int numBoards = 6;
-    Board boards[numBoards];
-
-    constexpr float BOARD_SPEED = 1.5f;
-    constexpr float MAX_H_GAP = 200.0f;
-
-    float lastBoardCenterX = W / 2.0f;
-
-    // ===== Safe-board rhythm tracking =====
-    int safeBoardsSinceThorny = 0;
-    constexpr int MIN_SAFE_BEFORE_THORNY = 3;
-    constexpr int MAX_SAFE_BEFORE_THORNY = 4;
-
-    auto spawnBoard = [&](int i, float startY, bool forceNormal = false, bool useLastX = true)
-        {
-            float w = 100.0f + rand() % 40;
-
-            float baseX = useLastX ? lastBoardCenterX : (W / 2.0f);
-            float offset = (float)(rand() % (int)(2 * MAX_H_GAP)) - MAX_H_GAP;
-
-            float centerX = baseX + offset;
-            if (centerX < w / 2 + 10)     centerX = w / 2 + 10;
-            if (centerX > W - w / 2 - 10) centerX = W - w / 2 - 10;
-
-            lastBoardCenterX = centerX;
-
-            boards[i].x = centerX - w / 2;
-            boards[i].y = startY;
-            boards[i].w = w;
-
-            // ---- Decide if this board should be thorny ----
-            if (forceNormal)
-            {
-                boards[i].thorny = false;
-                safeBoardsSinceThorny = 0;
-            }
-            else
-            {
-                int targetSafe = MIN_SAFE_BEFORE_THORNY +
-                    (rand() % (MAX_SAFE_BEFORE_THORNY - MIN_SAFE_BEFORE_THORNY + 1));
-
-                if (safeBoardsSinceThorny >= targetSafe)
-                {
-                    boards[i].thorny = true;
-                    safeBoardsSinceThorny = 0;
-                }
-                else
-                {
-                    boards[i].thorny = false;
-                    safeBoardsSinceThorny++;
-                }
-            }
-
-            // ---- Decide if this board has a gift ----
-            // Only safe boards can have a gift, and only ~1 in 5
-            if (!boards[i].thorny && !forceNormal && (rand() % 5 == 0))
-                boards[i].hasGift = true;
-            else
-                boards[i].hasGift = false;
-        };
-
-    constexpr int thornTopY = 30;
-    constexpr int thornH = 25;
-    constexpr int toothW = 30;
-
-    int hp = 100;
-    bool gameOver = false;
-    bool started = false;
-    int score = 0;
-    bool onThornyBoard = false;
+    int grid[ROWS][COLS];
 
     auto resetGame = [&]()
         {
-            hp = 100;
-            score = 0;
-            gameOver = false;
-            started = false;
-            onThornyBoard = false;
-            safeBoardsSinceThorny = 0;
-            lastBoardCenterX = W / 2.0f;
+            // Fill with empty
+            for (int r = 0; r < ROWS; ++r)
+                for (int c = 0; c < COLS; ++c)
+                    grid[r][c] = EMPTY;
 
-            for (int i = 0; i < numBoards; ++i)
+            // Concrete blocks on odd rows/cols (checker pattern)
+            for (int r = 0; r < ROWS; ++r)
+                for (int c = 0; c < COLS; ++c)
+                    if ((r % 2 == 1) && (c % 2 == 1))
+                        grid[r][c] = CONCRETE;
+
+            // Keep the player's spawn area + corridor clear
+            grid[0][0] = EMPTY;
+            grid[0][1] = EMPTY;
+            grid[0][2] = EMPTY;   // horizontal escape
+            grid[1][0] = EMPTY;
+            grid[2][0] = EMPTY;   // vertical escape
+
+            // Bricks on the remaining empty tiles (except spawn area)
+            for (int r = 0; r < ROWS; ++r)
             {
-                float y = (float)(H - 150 - i * 110);
-                spawnBoard(i, y, (i == 0));
+                for (int c = 0; c < COLS; ++c)
+                {
+                    if (grid[r][c] != EMPTY) continue;
+                    if (r == 0 && c == 0) continue;   // player spawn
+                    if (r == 0 && c == 1) continue;
+                    if (r == 1 && c == 0) continue;
+                    if (rand() % 3 == 0) grid[r][c] = BRICK;
+                }
             }
-
-            playerX = boards[0].x + boards[0].w / 2.0f;
-            playerY = boards[0].y;
-            playerVY = 0.0f;
         };
 
     resetGame();
+
+    int playerCX = 0, playerCY = 0;
+    int playerMoveTimer = 0;
+    constexpr int PLAYER_MOVE_DELAY = 6;
+
+    constexpr int maxBombs = 3;
+    constexpr int maxFlames = 60;
+    Bomb bombs[maxBombs];
+    Flame flames[maxFlames];
+    for (int i = 0; i < maxBombs; ++i) bombs[i].active = false;
+    for (int i = 0; i < maxFlames; ++i) flames[i].active = false;
+    int bombsPlaced = 0;
+
+    constexpr int maxEnemies = 4;
+    Enemy enemies[maxEnemies];
+    for (int i = 0; i < maxEnemies; ++i) enemies[i].alive = false;
+
+    auto resetEnemies = [&]()
+        {
+            for (int i = 0; i < maxEnemies; ++i)
+            {
+                enemies[i].alive = false;
+                int attempts = 100;
+                while (attempts-- > 0)
+                {
+                    int c = rand() % COLS;
+                    int r = ROWS - 1 - (rand() % 4);
+                    if (grid[r][c] == EMPTY &&
+                        !(r == playerCY && c == playerCX) &&
+                        !(r == 0 && c == 0))
+                    {
+                        enemies[i].alive = true;
+                        enemies[i].cx = c;
+                        enemies[i].cy = r;
+                        enemies[i].dir = rand() % 4;
+                        enemies[i].moveTimer = 0;
+                        break;
+                    }
+                }
+            }
+        };
+
+    resetEnemies();
+
+    int hp = 3;
+    int score = 0;
+    bool gameOver = false;
+    bool win = false;
+    bool started = false;
+
+    auto fullReset = [&]()
+        {
+            resetGame();
+            playerCX = 0;
+            playerCY = 0;
+            hp = 3;
+            score = 0;
+            gameOver = false;
+            win = false;
+            started = false;
+            bombsPlaced = 0;
+            for (int i = 0; i < maxBombs; ++i) bombs[i].active = false;
+            for (int i = 0; i < maxFlames; ++i) flames[i].active = false;
+            resetEnemies();
+        };
 
     BeginBatchDraw();
 
     while (1)
     {
-        if (GetAsyncKeyState(VK_ESCAPE) & 0x8000)
-            break;
+        if (GetAsyncKeyState(VK_ESCAPE) & 0x8000) break;
 
-        if ((GetAsyncKeyState(VK_SPACE) & 0x8000) && !started && !gameOver)
+        if ((GetAsyncKeyState('R') & 0x8000) && (gameOver || win))
         {
-            started = true;
-        }
-
-        if ((GetAsyncKeyState('R') & 0x8000) && gameOver)
-        {
-            resetGame();
+            fullReset();
             Sleep(200);
         }
 
-        if (started && !gameOver)
+        if ((GetAsyncKeyState(VK_SPACE) & 0x8000) && !started && !gameOver && !win)
+            started = true;
+
+        // ===== Player movement =====
+        if (started && !gameOver && !win)
         {
-            if (GetAsyncKeyState(VK_LEFT) & 0x8000)
+            if (playerMoveTimer > 0) playerMoveTimer--;
+
+            int moveDir = -1;
+            if (GetAsyncKeyState(VK_LEFT) & 0x8000)  moveDir = 2;
+            if (GetAsyncKeyState(VK_RIGHT) & 0x8000) moveDir = 3;
+            if (GetAsyncKeyState(VK_UP) & 0x8000)    moveDir = 0;
+            if (GetAsyncKeyState(VK_DOWN) & 0x8000)  moveDir = 1;
+
+            if (moveDir >= 0 && playerMoveTimer == 0)
             {
-                playerX -= moveSpeed;
-                if (playerX - playerW / 2 < 0) playerX = playerW / 2;
-            }
-            if (GetAsyncKeyState(VK_RIGHT) & 0x8000)
-            {
-                playerX += moveSpeed;
-                if (playerX + playerW / 2 > W) playerX = W - playerW / 2;
-            }
-        }
+                int nc = playerCX + DX[moveDir];
+                int nr = playerCY + DY[moveDir];
 
-        if (!started && !gameOver)
-        {
-            playerX = boards[0].x + boards[0].w / 2.0f;
-            playerY = boards[0].y;
-            playerVY = 0.0f;
-        }
-
-        if (started && !gameOver)
-        {
-            float oldPlayerY = playerY;
-            bool onBoard = false;
-            int onBoardIndex = -1;
-
-            for (int i = 0; i < numBoards; ++i)
-            {
-                boards[i].y -= BOARD_SPEED;
-
-                if (boards[i].y + 12 < 0)
+                if (nc >= 0 && nc < COLS && nr >= 0 && nr < ROWS)
                 {
-                    spawnBoard(i, (float)H + 20);
-                    score++;
+                    if (grid[nr][nc] == EMPTY)
+                    {
+                        playerCX = nc;
+                        playerCY = nr;
+                        playerMoveTimer = PLAYER_MOVE_DELAY;
+                    }
                 }
             }
 
-            playerVY += gravity;
-            playerY += playerVY;
-
-            for (int i = 0; i < numBoards; ++i)
+            if ((GetAsyncKeyState('B') & 0x8000) && bombsPlaced < maxBombs)
             {
-                float px1 = playerX - playerW / 2;
-                float px2 = playerX + playerW / 2;
-                float bx1 = boards[i].x;
-                float bx2 = boards[i].x + boards[i].w;
-                float boardTop = boards[i].y;
-                float boardBottom = boards[i].y + 12;
-
-                bool overlapX = (px2 > bx1) && (px1 < bx2);
-
-                bool feetInsideBoard = (playerY >= boardTop) &&
-                    (playerY <= boardBottom);
-
-                bool crossedFromAbove = (oldPlayerY <= boardTop) &&
-                    (playerY >= boardTop);
-
-                bool wasStanding = (oldPlayerY >= boardTop - 5) &&
-                    (oldPlayerY <= boardBottom + 5) &&
-                    (playerY >= boardTop - 5);
-
-                if (overlapX && playerVY >= 0 &&
-                    (feetInsideBoard || crossedFromAbove || wasStanding))
+                for (int i = 0; i < maxBombs; ++i)
                 {
-                    playerY = boardTop;
-                    playerVY = 0;
-                    onBoard = true;
-                    onBoardIndex = i;
-
-                    if (boards[i].thorny && !onThornyBoard)
+                    if (!bombs[i].active)
                     {
-                        hp -= 50;
-                        onThornyBoard = true;
-                        if (hp <= 0) gameOver = true;
+                        bombs[i].active = true;
+                        bombs[i].cx = playerCX;
+                        bombs[i].cy = playerCY;
+                        bombs[i].timer = 60;
+                        bombsPlaced++;
+                        break;
                     }
+                }
+                Sleep(200);
+            }
+        }
 
-                    // ---- Pick up gift if this board has one ----
-                    if (boards[i].hasGift)
+        // ===== Bomb ticking =====
+        if (started && !gameOver && !win)
+        {
+            for (int i = 0; i < maxBombs; ++i)
+            {
+                if (!bombs[i].active) continue;
+                bombs[i].timer--;
+                if (bombs[i].timer <= 0)
+                {
+                    bombs[i].active = false;
+                    bombsPlaced--;
+
+                    int cx = bombs[i].cx;
+                    int cy = bombs[i].cy;
+
+                    auto spawnFlame = [&](int c, int r)
+                        {
+                            if (c < 0 || c >= COLS || r < 0 || r >= ROWS) return;
+                            if (grid[r][c] == CONCRETE) return;
+
+                            if (grid[r][c] == BRICK)
+                            {
+                                grid[r][c] = EMPTY;
+                                score += 10;
+                                return;
+                            }
+
+                            for (int f = 0; f < maxFlames; ++f)
+                            {
+                                if (!flames[f].active)
+                                {
+                                    flames[f].active = true;
+                                    flames[f].cx = c;
+                                    flames[f].cy = r;
+                                    flames[f].timer = 20;
+                                    break;
+                                }
+                            }
+                        };
+
+                    spawnFlame(cx, cy);
+                    for (int d = 0; d < 4; ++d)
+                        for (int dist = 1; dist <= 2; ++dist)
+                            spawnFlame(cx + DX[d] * dist, cy + DY[d] * dist);
+                }
+            }
+
+            for (int i = 0; i < maxFlames; ++i)
+            {
+                if (!flames[i].active) continue;
+                flames[i].timer--;
+                if (flames[i].timer <= 0) flames[i].active = false;
+            }
+        }
+
+        // ===== Enemy movement =====
+        if (started && !gameOver && !win)
+        {
+            for (int e = 0; e < maxEnemies; ++e)
+            {
+                if (!enemies[e].alive) continue;
+
+                if (enemies[e].moveTimer > 0)
+                {
+                    enemies[e].moveTimer--;
+                }
+                else
+                {
+                    int nc = enemies[e].cx + DX[enemies[e].dir];
+                    int nr = enemies[e].cy + DY[enemies[e].dir];
+
+                    if (nc >= 0 && nc < COLS && nr >= 0 && nr < ROWS &&
+                        grid[nr][nc] == EMPTY)
                     {
-                        hp += 25;
-                        if (hp > 100) hp = 100;
-                        boards[i].hasGift = false;
+                        bool blocked = false;
+                        for (int k = 0; k < maxEnemies; ++k)
+                        {
+                            if (k == e || !enemies[k].alive) continue;
+                            if (enemies[k].cx == nc && enemies[k].cy == nr) { blocked = true; break; }
+                        }
+                        if (!blocked)
+                        {
+                            enemies[e].cx = nc;
+                            enemies[e].cy = nr;
+                        }
+                        else enemies[e].dir = rand() % 4;
                     }
+                    else enemies[e].dir = rand() % 4;
 
+                    enemies[e].moveTimer = 25;
+                }
+
+                for (int f = 0; f < maxFlames; ++f)
+                {
+                    if (!flames[f].active) continue;
+                    if (flames[f].cx == enemies[e].cx &&
+                        flames[f].cy == enemies[e].cy)
+                    {
+                        enemies[e].alive = false;
+                        score += 50;
+                        break;
+                    }
+                }
+            }
+
+            for (int f = 0; f < maxFlames; ++f)
+            {
+                if (!flames[f].active) continue;
+                if (flames[f].cx == playerCX && flames[f].cy == playerCY)
+                {
+                    flames[f].active = false;
+                    hp--;
+                    if (hp <= 0) gameOver = true;
                     break;
                 }
             }
 
-            if (onBoard && onBoardIndex >= 0)
+            for (int e = 0; e < maxEnemies; ++e)
             {
-                playerY = boards[onBoardIndex].y;
-            }
-
-            if (!onBoard || onBoardIndex < 0 || !boards[onBoardIndex].thorny)
-                onThornyBoard = false;
-
-            if (playerY - playerH <= thornTopY + thornH)
-            {
-                hp = 0;
-                gameOver = true;
-            }
-
-            if (playerY > H + 50)
-            {
-                hp = 0;
-                gameOver = true;
+                if (!enemies[e].alive) continue;
+                if (enemies[e].cx == playerCX && enemies[e].cy == playerCY)
+                {
+                    hp = 0;
+                    gameOver = true;
+                    break;
+                }
             }
         }
 
+        if (started && !gameOver && !win)
+        {
+            bool anyAlive = false;
+            for (int e = 0; e < maxEnemies; ++e)
+                if (enemies[e].alive) anyAlive = true;
+            if (!anyAlive) win = true;
+        }
+
+        // ===== Draw =====
         cleardevice();
 
-        setfillcolor(RGB(30, 30, 50));
-        solidrectangle(0, 0, W, H);
+        // HUD
+        setfillcolor(RGB(30, 20, 40));
+        solidrectangle(0, 0, W, HUD_H);
+        setfillcolor(RGB(60, 40, 80));
+        solidrectangle(0, HUD_H - 3, W, HUD_H);
 
-        for (int i = 0; i < numBoards; ++i)
+        settextcolor(RGB(255, 220, 100));
+        settextstyle(22, 0, _T("Arial"));
+        setbkmode(TRANSPARENT);
+        TCHAR buf[64];
+        _stprintf_s(buf, _T("HP: %d    Score: %d    Bombs: %d/%d"),
+            hp, score, bombsPlaced, maxBombs);
+        outtextxy(20, 20, buf);
+
+        // Grid
+        for (int r = 0; r < ROWS; ++r)
         {
-            if (boards[i].thorny)
-                setfillcolor(RGB(120, 30, 30));
-            else
-                setfillcolor(RGB(90, 90, 120));
-            setlinecolor(RGB(200, 200, 200));
-            setlinestyle(PS_SOLID, 2);
-            solidrectangle((int)boards[i].x, (int)boards[i].y,
-                (int)(boards[i].x + boards[i].w),
-                (int)(boards[i].y + 12));
-
-            if (boards[i].thorny)
-                drawThornRow((int)boards[i].x,
-                    (int)(boards[i].x + boards[i].w),
-                    (int)boards[i].y - 10, 15, 10);
-
-            // ---- Draw gift (health pack) on safe boards that have one ----
-            if (boards[i].hasGift)
+            for (int c = 0; c < COLS; ++c)
             {
-                int gx = (int)(boards[i].x + boards[i].w / 2);
-                int gy = (int)boards[i].y - 15;
+                int x = c * TILE;
+                int y = r * TILE + HUD_H;
 
-                setfillcolor(RGB(220, 40, 40));
-                setlinecolor(RGB(120, 0, 0));
-                setlinestyle(PS_SOLID, 2);
-                solidrectangle(gx - 9, gy - 3, gx + 9, gy + 3);
-                solidrectangle(gx - 3, gy - 9, gx + 3, gy + 9);
+                drawGround(x, y, r, c);
+
+                if (grid[r][c] == CONCRETE)      drawConcrete(x, y);
+                else if (grid[r][c] == BRICK)    drawBrick(x, y);
             }
         }
 
-        drawThornRow(0, W, thornTopY, toothW, thornH);
-        drawPerson(playerX, playerY);
+        for (int i = 0; i < maxBombs; ++i)
+            if (bombs[i].active)
+                drawBomb(bombs[i].cx * TILE, bombs[i].cy * TILE + HUD_H, bombs[i].timer);
 
-        setfillcolor(RGB(50, 50, 50));
-        setlinecolor(RGB(255, 255, 255));
-        setlinestyle(PS_SOLID, 2);
-        solidrectangle(15, 15, 215, 40);
+        for (int i = 0; i < maxEnemies; ++i)
+            if (enemies[i].alive)
+                drawEnemy(enemies[i].cx * TILE, enemies[i].cy * TILE + HUD_H);
 
-        setfillcolor(hp > 50 ? RGB(80, 220, 80) :
-            hp > 0 ? RGB(220, 180, 60) :
-            RGB(220, 40, 40));
-        solidrectangle(17, 17, 17 + (int)(hp * 1.96f), 38);
+        drawPlayer(playerCX * TILE, playerCY * TILE + HUD_H);
 
-        settextcolor(WHITE);
-        settextstyle(16, 0, _T("Arial"));
-        setbkmode(TRANSPARENT);
-        TCHAR hpBuf[32];
-        _stprintf_s(hpBuf, _T("HP: %d%%"), hp);
-        outtextxy(25, 19, hpBuf);
+        for (int i = 0; i < maxFlames; ++i)
+            if (flames[i].active)
+                drawFlame(flames[i].cx * TILE, flames[i].cy * TILE + HUD_H, flames[i].timer);
 
-        TCHAR scBuf[32];
-        _stprintf_s(scBuf, _T("Score: %d"), score);
-        outtextxy(W - 130, 20, scBuf);
-
-        if (!started && !gameOver)
+        // Overlays
+        if (!started)
         {
             setfillcolor(RGB(0, 0, 0));
-            solidrectangle(100, H / 2 - 60, W - 100, H / 2 + 60);
-
-            settextcolor(RGB(255, 255, 100));
-            settextstyle(30, 0, _T("Arial"));
-            outtextxy(140, H / 2 - 30, _T("Press SPACE"));
+            solidrectangle(100, H / 2 - 80, W - 100, H / 2 + 80);
+            settextcolor(RGB(255, 220, 100));
+            settextstyle(36, 0, _T("Arial"));
+            outtextxy(160, H / 2 - 50, _T("BOMBERMAN"));
             settextstyle(22, 0, _T("Arial"));
-            outtextxy(180, H / 2 + 10, _T("to start"));
+            outtextxy(140, H / 2 + 5, _T("SPACE to start"));
+            settextstyle(16, 0, _T("Arial"));
+            outtextxy(100, H / 2 + 40, _T("Arrows: move    B: bomb"));
         }
 
         if (gameOver)
         {
             setfillcolor(RGB(0, 0, 0));
             solidrectangle(100, H / 2 - 80, W - 100, H / 2 + 80);
-
             settextcolor(RGB(255, 60, 60));
             settextstyle(40, 0, _T("Arial"));
-            outtextxy(140, H / 2 - 60, _T("GAME OVER"));
-
+            outtextxy(140, H / 2 - 50, _T("GAME OVER"));
             settextcolor(WHITE);
             settextstyle(22, 0, _T("Arial"));
-            TCHAR mbuf[64];
-            _stprintf_s(mbuf, _T("Score: %d"), score);
-            outtextxy(230, H / 2, mbuf);
-
+            TCHAR mb[64];
+            _stprintf_s(mb, _T("Score: %d"), score);
+            outtextxy(200, H / 2 + 10, mb);
             settextstyle(18, 0, _T("Arial"));
-            outtextxy(180, H / 2 + 40, _T("Press R to restart"));
-            outtextxy(180, H / 2 + 65, _T("Press ESC to exit"));
+            outtextxy(180, H / 2 + 50, _T("Press R to restart"));
         }
-        else if (started)
+
+        if (win)
         {
-            settextcolor(RGB(180, 180, 180));
-            settextstyle(14, 0, _T("Arial"));
-            outtextxy(15, H - 25, _T("LEFT / RIGHT to move   ESC to quit"));
+            setfillcolor(RGB(0, 0, 0));
+            solidrectangle(100, H / 2 - 80, W - 100, H / 2 + 80);
+            settextcolor(RGB(80, 255, 80));
+            settextstyle(40, 0, _T("Arial"));
+            outtextxy(180, H / 2 - 50, _T("YOU WIN!"));
+            settextcolor(WHITE);
+            settextstyle(22, 0, _T("Arial"));
+            TCHAR mb[64];
+            _stprintf_s(mb, _T("Score: %d"), score);
+            outtextxy(200, H / 2 + 10, mb);
+            settextstyle(18, 0, _T("Arial"));
+            outtextxy(180, H / 2 + 50, _T("Press R to restart"));
         }
 
         FlushBatchDraw();
-        Sleep(15);
+        Sleep(16);
     }
 
     EndBatchDraw();
