@@ -1,0 +1,17 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="Homework1_Green/Homework1_Green.vcxproj" Id="aade55c4-cdad-4459-9b4d-aca0c2ce900b" />
+  <Project Path="Homework1_Red/Homework1_Red.vcxproj" Id="e17189dc-93f7-4d7a-956f-877257035c32" />
+  <Project Path="Homework2_Gradient/Homework2_Gradient.vcxproj" Id="77308576-fdf2-406a-b60b-bc2b7a2d4711" />
+  <Project Path="Motion_Bouncing/Motion_Bouncing.vcxproj" Id="2924a314-f64d-49d1-86b0-ca67be727dfa" />
+  <Project Path="motion_freefall/motion_freefall.vcxproj" Id="2e1fb9bf-af6e-48fa-953e-d265c08dadad" />
+  <Project Path="motion_rebounding/motion_rebounding.vcxproj" Id="a08574b6-99c7-4aad-8a25-9071f95bd806" />
+  <Project Path="Practice1_Jumping/Practice1_Jumping.vcxproj" Id="f221d461-bdc5-46b8-9a12-8a92c7e9544f" />
+  <Project Path="Practice2_Shooting/Practice2_Shooting.vcxproj" Id="670c963f-eabe-4797-beaf-9028ebf76b0a" />
+  <Project Path="Practice3_Breakout/Practice3_Breakout.vcxproj" Id="11c735be-1176-4cdd-90e2-38716c376f35" />
+  <Project Path="Practice3_Bricks/Practice3_Bricks.vcxproj" Id="c2c967b3-fa2f-4dd1-963d-05829854ce8e" />
+  <Project Path="practice4_hundred_levels/practice4_hundred_levels.vcxproj" Id="3c324562-4ab9-4308-b3e3-ce085e6ef296" />
+</Solution>
